@@ -2,8 +2,7 @@ import React, { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/router";
 import { io } from "socket.io-client";
 import useSocket from "../../hooks/useSocket";
-import { Tooltip as ReactTooltip } from "react-tooltip";
-import { useMedia } from "@/providers/MediaProvider";
+import { useMedia } from "@/providers/MediaProvider"; // Assuming this provides microphone and video stream
 
 const ICE_SERVERS = {
   iceServers: [
@@ -14,6 +13,7 @@ const ICE_SERVERS = {
     { urls: "stun:stun4.l.google.com:19302" },
   ],
 };
+
 function uuidv4() {
   return "10000000-1000-4000-8000-100000000000".replace(/[018]/g, (c) =>
     (
@@ -24,28 +24,26 @@ function uuidv4() {
 }
 
 const Calling = () => {
-  useSocket();
   const router = useRouter();
   const socketRef = useRef();
   const userStreamRef = useRef();
   const hostRef = useRef(false);
   const userVideoRef = useRef();
   const peerVideoRef = useRef();
+  const rtcConnectionRef = useRef(null);
+
   const [messages, setMessages] = useState([]);
   const [inputMessage, setInputMessage] = useState("");
   const [roomName, setRoomName] = useState(router.query.id);
   const [micActive, setMicActive] = useState(true);
   const [cameraActive, setCameraActive] = useState(true);
-  const rtcConnectionRef = useRef(null);
-  const chatWindowRef = useRef();
-  const chatInputRef = useRef();
-  const [skippedSessions, setSkippedSessions] = useState([]);
-  const [waitingRooms, setWaitingRooms] = useState([]);
-  const [firstLoad, setFirstLoad] = useState(true);
-  const [sessionUsers, setSessionUsers] = useState([]);
-  const [microphoneAccess, setMicrophoneAccess] = useState();
   const [connectionStatus, setConnectionStatus] = useState("Searching...");
-  const {audioStreamRef} = useMedia();
+  const [waitingRooms, setWaitingRooms] = useState([]);
+  const [skippedSessions, setSkippedSessions] = useState([]);
+  const [renderForce,setRenderForce] = useState(0);
+  
+
+  const { audioStreamRef } = useMedia();
 
   useEffect(() => {
     setRoomName(router.query.id);
@@ -56,50 +54,22 @@ const Calling = () => {
   }, []);
 
   useEffect(() => {
+    
+    if (!roomName) return;
+
+    // Initialize socket connection
     socketRef.current = io(process.env.NEXT_PUBLIC_LIVE_URL, {
       transports: ["websocket"],
       upgrade: false,
     });
-  }, [roomName]);
 
-  useEffect(() => {
-    if (!roomName && firstLoad) {
-      setFirstLoad(false);
-      console.log("exiting due to first load");
-      return;
-    }
-    var roomToJoin = roomName;
-
-    if (!roomName) {
-      var isThereARoomToJoin = false;
-      var checked = new Set();
-      // console.log({ skippedSessions, waitingRooms });
-      while (isThereARoomToJoin == false && waitingRooms.length > 0) {
-        // console.log("while useEffect");
-        roomToJoin =
-          waitingRooms[Math.floor(Math.random() * (waitingRooms.length - 1))];
-        checked.add(roomToJoin);
-        if (
-          !skippedSessions.includes(roomToJoin) ||
-          checked.size == waitingRooms.length
-        )
-          isThereARoomToJoin = true;
-      }
-      console.log({ roomToJoin });
-    }
-
-    // console.log("I am in useEffect", roomToJoin);
+    // Get waiting rooms and active sessions
     socketRef.current.on("getWaitingRooms", (rooms) => {
-      console.log({ rooms }, "room1234");
+      console.log('getWaitingRooms',rooms)
       setWaitingRooms(rooms.waiting_queue);
-      setSessionUsers(rooms.active_sessions_users);
-
-      // Check if the room is connected after sessionUsers is updated
       if (
-        roomToJoin &&
-        rooms?.active_sessions_users &&
-        rooms?.active_sessions_users[roomToJoin] &&
-        rooms?.active_sessions_users[roomToJoin].length === 2
+        rooms.active_sessions_users[roomName] &&
+        rooms.active_sessions_users[roomName].length === 2
       ) {
         setConnectionStatus("Connected");
       } else {
@@ -107,91 +77,57 @@ const Calling = () => {
       }
     });
 
-    // First we join a room
-    socketRef.current.emit("join", roomToJoin);
+    // Join the room
+    socketRef.current.emit("join", {roomId:roomName});
+
+    // Room Events
     socketRef.current.on("joined", handleRoomJoined);
-    // If the room didn't exist, the server would emit the room was 'created'
     socketRef.current.on("created", handleRoomCreated);
-    // Whenever the next person joins, the server emits 'ready'
     socketRef.current.on("ready", initiateCall);
-
-    // Emitted when a peer leaves the room
     socketRef.current.on("leave", onPeerLeave);
-
-    // If the room is full, we show an alert
-    socketRef.current.on("full", () => {
-      // console.log({ skippedSessions, waitingRooms });
-      let isThereARoomToJoin = false;
-      let checked = new Set([]);
-      while (isThereARoomToJoin == false && waitingRooms.length > 0) {
-        roomToJoin =
-          waitingRooms[Math.floor(Math.random() * (waitingRooms.length - 1))];
-        // console.log("while full");
-        checked.add(roomToJoin);
-        if (
-          !skippedSessions.includes(roomToJoin) ||
-          checked.size == waitingRooms.length
-        )
-          isThereARoomToJoin = true;
-      }
-      roomToJoin = roomToJoin || uuidv4();
-      setRoomName(roomToJoin);
-    });
-
+    socketRef.current.on("full", handleRoomFull);
     socketRef.current.on("message_recieved", message_received);
-
-    // Event called when a remote user initiating the connection and
     socketRef.current.on("offer", handleReceivedOffer);
     socketRef.current.on("answer", handleAnswer);
     socketRef.current.on("ice-candidate", handlerNewIceCandidateMsg);
     socketRef.current.on("skipped_users", updateSkippedUsers);
 
-    // clear up after
     return () => {
+      // Cleanup socket connection when leaving
       socketRef.current.emit("skip", roomName);
       socketRef.current.disconnect();
     };
-  }, [roomName]);
+  }, [roomName,renderForce]);
 
   const handleRoomJoined = () => {
-    // console.log("handleRoomJoind")
-    setRoomName(roomName);
-
-    if(audioStreamRef.current){
+    if (audioStreamRef.current) {
       userStreamRef.current = audioStreamRef.current;
-        userVideoRef.current.srcObject = audioStreamRef.current;
-        userVideoRef.current.onloadedmetadata = () => {
-          userVideoRef.current.play();
-        };
-        socketRef.current.emit("ready", roomName);
-    }else{
-      throw new Error("Microphone access not granted");
+      userVideoRef.current.srcObject = userStreamRef.current;
+      userVideoRef.current.onloadedmetadata = () => {
+        userVideoRef.current.play();
+      };
+      socketRef.current.emit("ready", roomName);
+    } else {
+      console.error("Microphone access not granted");
     }
-
-   
-
   };
 
   const handleRoomCreated = () => {
-    setRoomName(roomName);
-
     hostRef.current = true;
-
-    if(audioStreamRef.current){
+    if (audioStreamRef.current) {
       userStreamRef.current = audioStreamRef.current;
-      userVideoRef.current.srcObject = audioStreamRef.current;
-        userVideoRef.current.onloadedmetadata = () => {
-          userVideoRef.current.play();
+      userVideoRef.current.srcObject = userStreamRef.current;
+      userVideoRef.current.onloadedmetadata = () => {
+        userVideoRef.current.play();
       };
+    } else {
+      console.error("Microphone access not granted");
     }
   };
 
   const initiateCall = () => {
-    if (hostRef.current) {
-      if (!userStreamRef.current) {
-        console.error("User stream is not initialized");
-        return;
-      }
+    console.log('i am init calling...')
+    if (hostRef.current && userStreamRef.current) {
       rtcConnectionRef.current = createPeerConnection();
       rtcConnectionRef.current.addTrack(
         userStreamRef.current.getTracks()[0],
@@ -203,17 +139,13 @@ const Calling = () => {
           rtcConnectionRef.current.setLocalDescription(offer);
           socketRef.current.emit("offer", offer, roomName);
         })
-        .catch((error) => {
-          console.log(error);
-        });
+        .catch((error) => console.log("Error creating offer:", error));
     }
   };
 
   const onPeerLeave = (waiting_queue) => {
-    // This person is now the creator because they are the only person in the room.
     hostRef.current = false;
     setConnectionStatus("Searching...");
-    // console.log("peer left");
     window.location.reload();
   };
 
@@ -222,10 +154,6 @@ const Calling = () => {
   };
 
   const handleSendMessage = () => {
-    // if (inputMessage.trim()) {
-    //     setMessages([...messages, { text: inputMessage, sender: "user" }]);
-    //     setInputMessage("");
-    // }
     if (inputMessage.trim()) {
       setMessages([
         ...messages,
@@ -239,21 +167,9 @@ const Calling = () => {
     }
   };
 
-  /**
-   * Takes a userid which is also the socketid and returns a WebRTC Peer
-   *
-   * @param  {string} userId Represents who will receive the offer
-   * @returns {RTCPeerConnection} peer
-   */
-
   const createPeerConnection = () => {
-    // We create a RTC Peer Connection
     const connection = new RTCPeerConnection(ICE_SERVERS);
-
-    // We implement our onicecandidate method for when we received a ICE candidate from the STUN server
     connection.onicecandidate = handleICECandidateEvent;
-
-    // We implement our onTrack method for when we receive tracks
     connection.ontrack = handleTrackEvent;
     return connection;
   };
@@ -265,59 +181,54 @@ const Calling = () => {
   };
 
   const handleTrackEvent = (event) => {
-    // eslint-disable-next-line prefer-destructuring
+    console.log('event stream',event.streams[0])
     peerVideoRef.current.srcObject = event.streams[0];
   };
 
   const handleReceivedOffer = (offer) => {
-    if (!hostRef.current) {
+    // !hostRef.current
+    if (true) {
+      console.log('i am getting offer')
       rtcConnectionRef.current = createPeerConnection();
-      rtcConnectionRef.current.addTrack(
-        userStreamRef.current.getTracks()[0],
-        userStreamRef.current
-      );
+      rtcConnectionRef.current.addTrack(userStreamRef.current.getTracks()[0], userStreamRef.current);
       rtcConnectionRef.current.setRemoteDescription(offer);
-
-      rtcConnectionRef.current
-        .createAnswer()
+      rtcConnectionRef.current.createAnswer()
         .then((answer) => {
+          console.log('i am sending answer')
           rtcConnectionRef.current.setLocalDescription(answer);
           socketRef.current.emit("answer", answer, roomName);
         })
-        .catch((error) => {
-          console.log(error);
-        });
+        .catch((e) => console.log('getting error',e.message));
     }
   };
 
   const handleAnswer = (answer) => {
-    rtcConnectionRef.current
-      .setRemoteDescription(answer)
-      .catch((err) => console.log(err));
+    console.log('i am getting answer...')
+    rtcConnectionRef.current.setRemoteDescription(answer).catch(console.log);
   };
 
   const handlerNewIceCandidateMsg = (incoming) => {
-    // We cast the incoming candidate to RTCIceCandidate
     const candidate = new RTCIceCandidate(incoming);
-    if (!rtcConnectionRef) initiateCall();
-    rtcConnectionRef.current
-      .addIceCandidate(candidate)
-      .catch((e) => console.log(e));
+    rtcConnectionRef.current?.addIceCandidate(candidate).catch((e) => console.log(e));
   };
 
   const updateSkippedUsers = (data) => {
     setSkippedSessions(data);
+    socketRef.current.emit("join", {roomId:roomName,userskip:true});
+    setRenderForce(Math.random()*1000)
+    
   };
+
   const requestMicrophonePermission = async () => {
     try {
-      if(audioStreamRef.current){
+      if (audioStreamRef.current) {
         userStreamRef.current = audioStreamRef.current;
         console.log("Microphone access granted, stream initialized:", audioStreamRef.current);
         if (userVideoRef.current) {
-              userVideoRef.current.srcObject = audioStreamRef.current;
-              userVideoRef.current.play();
+          userVideoRef.current.srcObject = audioStreamRef.current;
+          userVideoRef.current.play();
         }
-      }else{
+      } else {
         throw new Error("Microphone access not granted");
       }
     } catch (error) {
@@ -328,57 +239,58 @@ const Calling = () => {
   const toggleMediaStream = (type, state) => {
     userStreamRef.current?.getTracks()?.forEach((track) => {
       if (track.kind === type) {
-        // eslint-disable-next-line no-param-reassign
         track.enabled = !state;
       }
     });
   };
-  const getRandomDelay = () => {
-    return Math.floor(Math.random() * 5000) + 10000; // Random time between 10000ms (10s) and 15000ms (15s)
-  };
+
   const toggleMic = () => {
     toggleMediaStream("audio", micActive);
     setMicActive((prev) => !prev);
   };
 
   const handleSkipCalling = () => {
-    // setLoader(true);
 
     const connectSocket = () => {
       socketRef.current.emit("skip", roomName);
-      if (peerVideoRef.current.srcObject) {
-        peerVideoRef.current.srcObject
-          .getTracks()
-          .forEach((track) => track.stop());
-      }
+      
 
-      let waitingRoomsTemp = [...waitingRooms].filter((rn) => rn != roomName);
+      let waitingRoomsTemp = [...waitingRooms].filter((rn) => rn !== roomName);
 
       if (waitingRoomsTemp.length !== 0) {
-        let roomToJoin =
-          waitingRoomsTemp.length > 0
-            ? waitingRoomsTemp[
-                Math.floor(Math.random() * waitingRoomsTemp.length)
-              ]
-            : uuidv4();
+        if (peerVideoRef.current.srcObject) {
+          peerVideoRef.current.srcObject.getTracks().forEach((track) => track.stop());
+        }
+  
+        let roomToJoin = waitingRoomsTemp[Math.floor(Math.random() * waitingRoomsTemp.length)];
         if (connectionStatus === "Searching...") {
           socketRef.current.emit("onLeave", roomName);
         }
 
-        window.location.href = "/calling/" + roomToJoin;
+        if(rtcConnectionRef.current){
+          rtcConnectionRef.current.close();
+          rtcConnectionRef.current = null;
+        }
+        
+        // window.location.href = "/calling/" + roomToJoin;
+        router.push(`/calling/${roomToJoin}`)
       } else {
         let roomToJoin = roomName;
-
         if (connectionStatus === "Searching...") {
           socketRef.current.emit("onLeave", roomName);
         }
-        window.location.href = "/calling/" + roomToJoin;
+
+        // if(rtcConnectionRef.current){
+        //   rtcConnectionRef.current.close();
+        //   rtcConnectionRef.current = null;
+        // }
+
+        // router.push(`/calling/${roomToJoin}`);
+        // setRenderForce(Math.random()*1000);
       }
+
     };
     connectSocket();
-    // const intervalId = setTimeout(function run() {
-    //   setTimeout(run, getRandomDelay());
-    // }, getRandomDelay());
   };
 
   const handleEndCalling = () => {
@@ -386,11 +298,27 @@ const Calling = () => {
     if (connectionStatus === "Searching...") {
       socketRef.current.emit("onLeave", roomName);
     }
-    if(rtcConnectionRef.current){
+    if (rtcConnectionRef.current) {
       rtcConnectionRef.current.close();
       rtcConnectionRef.current = null;
     }
     router.push("/");
+  };
+
+  // Handle room full case
+  const handleRoomFull = () => {
+    console.log("Room is full, attempting to find another room...");
+    let waitingRoomsTemp = [...waitingRooms].filter((rn) => rn !== roomName);
+
+    if (waitingRoomsTemp.length > 0) {
+      let roomToJoin = waitingRoomsTemp[Math.floor(Math.random() * waitingRoomsTemp.length)];
+      setRoomName(roomToJoin);
+      socketRef.current.emit("join", {roomId:roomToJoin});
+    } else {
+      let roomToJoin = uuidv4();
+      setRoomName(roomToJoin);
+      socketRef.current.emit("join", {roomId:roomToJoin});
+    }
   };
 
   return (
@@ -476,7 +404,7 @@ const Calling = () => {
             {/* <div className="chat-box">
             <div className="messages">
               {messages.map((msg, index) => (
-                <div key={index} className={`message ${msg.sender}`}>
+                <div key={index} className={message ${msg.sender}}>
                   {msg.text}
                 </div>
               ))}

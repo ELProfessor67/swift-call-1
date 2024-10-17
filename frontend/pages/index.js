@@ -1,11 +1,8 @@
 import React, { useEffect, useRef, useState } from "react";
-import Image from "next/image";
 import { useRouter } from "next/router";
-import { Inter } from "next/font/google";
-import { IoMoon } from "react-icons/io5";
-import { IoSunny } from "react-icons/io5";
 import { io } from "socket.io-client";
 import useSocket from "../hooks/useSocket";
+import { Inter } from "next/font/google";
 const inter = Inter({ subsets: ["latin"] });
 
 export default function Home() {
@@ -17,72 +14,12 @@ export default function Home() {
   const socketRef = useRef();
   const [loader, setLoader] = useState(true);
 
-
-  
-
+  // Function to handle room redirection
   const handleRedirect = () => {
-    router.push(`/calling/${roomName || Math.random().toString(36).slice(2)}`); // Replace with your target page route
+    router.push(`/calling/${roomName || Math.random().toString(36).slice(2)}`);
   };
 
-  useEffect(() => {
-    // Check if the user prefers dark mode
-    const prefersDarkMode = window.matchMedia(
-      "(prefers-color-scheme: dark)"
-    ).matches;
-
-    // Set the initial theme based on user preference
-    setIsDarkTheme(prefersDarkMode);
-  }, []);
-
-  useEffect(() => {
-    const connectSocket = () => {
-      setLoader(false);
-      var existingUUID = getUUIDCookie();
-      if (!existingUUID) {
-        setUUIDCookie();
-      }
-      socketRef.current = io(process.env.NEXT_PUBLIC_LIVE_URL);
-      // if (!socketRef.current) {
-      //   socketRef.current = io(process.env.NEXT_PUBLIC_LIVE_URL);
-      // }
-
-      socketRef.current.on("getWaitingRooms", (rooms) => {
-        console.log("rooms", rooms);
-        setRoomName(
-          rooms?.waiting_queue?.length
-            ? rooms.waiting_queue[rooms.waiting_queue.length - 1] || uuidv4()
-            : uuidv4()
-        );
-
-        // for (let i = rooms?.waiting_queue?.length; i > 0; i++) {
-        //   if (
-        //     rooms?.active_sessions_users[rooms.waiting_queue[i - 1]]?.length < 2
-        //   ) {
-        //     setRoomName(rooms.waiting_queue[i - 1]);
-        //     break;
-        //   } else if (i == 1) {
-        //     setRoomName(uuidv4());
-        //   }
-        // }
-
-        // if (!roomName) {
-        //   setRoomName(uuidv4());
-        // }
-      });
-    };
-
-    // Start the first connection immediately
-    // connectSocket();
-    connectSocket();
-    // const intervalId = setTimeout(function run() {
-
-    //   setTimeout(run, getRandomDelay());
-    // }, getRandomDelay());
-
-    // Clean up the interval and socket connection on component unmount
-    return () => socketRef.current.disconnect();
-  }, []);
-
+  // Function to get and set the UUID cookie
   function uuidv4() {
     return "10000000-1000-4000-8000-100000000000".replace(/[018]/g, (c) =>
       (
@@ -92,13 +29,12 @@ export default function Home() {
     );
   }
 
-  // Function to set a cookie with the UUID
+  // Function to set the UUID cookie
   function setUUIDCookie() {
     document.cookie =
       "token_id=" +
       uuidv4() +
       "; expires=Fri, 31 Dec 9999 23:59:59 GMT; path=/";
-    // console.log('the cookie is setUUID ', document.cookie)
   }
 
   // Function to get the UUID cookie
@@ -118,17 +54,62 @@ export default function Home() {
     return null;
   }
 
+  // Function to open the modal
   const openModal = () => {
     setIsModalOpen(true);
   };
 
+  // Function to close the modal
   const closeModal = () => {
     setIsModalOpen(false);
   };
+
+  // UseEffect to manage socket connection
+  useEffect(() => {
+    const connectSocket = () => {
+      setLoader(false);
+      const existingUUID = getUUIDCookie();
+      if (!existingUUID) {
+        setUUIDCookie();
+      }
+      socketRef.current = io(process.env.NEXT_PUBLIC_LIVE_URL);
+
+      socketRef.current.on("getWaitingRooms", (rooms) => {
+        console.log("getWaitingRooms", rooms);
+        let selectedRoom = null;
+
+        // Loop through the waiting queue to find an available room with less than 2 users
+        for (let i = rooms.waiting_queue.length - 1; i >= 0; i--) {
+          const room = rooms.waiting_queue[i];
+          if (rooms.active_sessions_users[room]?.length < 2) {
+            selectedRoom = room;
+            break;
+          }
+        }
+
+        // If no room is found, create a new one
+        setRoomName(selectedRoom || uuidv4());
+      });
+    };
+
+    connectSocket();
+
+    // Cleanup the socket connection when the component unmounts
+    return () => {
+      socketRef.current.disconnect();
+    };
+  }, []);
+
+  // UseEffect to check user’s preferred theme
+  useEffect(() => {
+    const prefersDarkMode = window.matchMedia("(prefers-color-scheme: dark)").matches;
+    setIsDarkTheme(prefersDarkMode);
+  }, []);
+
   return (
     <>
-      <main className={` min-h-screen ${inter.className}`}>
-        {loader && <div id="loader" class="loader"></div>}
+      <main className={`min-h-screen ${inter.className}`}>
+        {loader && <div id="loader" className="loader"></div>}
         <div className="">
           <div className="main-content-text">
             <h1 className="main-hd">Smart AI Conversations</h1>
@@ -141,10 +122,7 @@ export default function Home() {
             >
               <span className="flex justify-center items-center gap-2">
                 <img className="dark:hidden block" src="./mic_svgrepo.png" />
-                <img
-                  className="dark:block hidden"
-                  src="./mic_svgrepo-dark.png"
-                />
+                <img className="dark:block hidden" src="./mic_svgrepo-dark.png" />
                 Start Call
               </span>
             </button>
