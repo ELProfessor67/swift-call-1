@@ -110,6 +110,8 @@ io.on("connection", (socket) => {
 
     // Only add the room back to waiting queue if it's empty
     if (active_sessions_users[roomName]?.length === 0) {
+      delete waiting_queue[roomName];
+    }else{
       if(!waiting_queue.includes(roomName)) waiting_queue.push(roomName);
     }
 
@@ -135,6 +137,8 @@ io.on("connection", (socket) => {
     if (active_sessions_users[roomName]) {
       active_sessions_users[roomName] = active_sessions_users[roomName]?.filter((user) => user !== user_token);
     }
+
+
 
     updateRoomState();
     socket.leave(roomName);
@@ -167,6 +171,8 @@ io.on("connection", (socket) => {
 
     // Only add the room back to waiting queue if it's empty
     if (active_sessions_users[roomName]?.length === 0) {
+      delete waiting_queue[roomName];
+    }else{
       if(!waiting_queue.includes(roomName)) waiting_queue.push(roomName);
     }
 
