@@ -31,6 +31,7 @@ let active_sessions = [];
 let messages = {};
 let skipped_sessions = {};
 let active_sessions_users = {};
+let socket_rooms = {}
 
 io.on("connection", (socket) => {
   const user_token = socket.id;
@@ -40,6 +41,9 @@ io.on("connection", (socket) => {
   socket.on("join", ({roomId:roomName,userskip=false}) => {
     if (!roomName) return;
     const room = io.sockets.adapter.rooms.get(roomName);
+    socket_rooms[user_token] = roomName;
+
+
 
     // Create a new room if no such room exists
     if (room === undefined || userskip) {
@@ -61,7 +65,9 @@ io.on("connection", (socket) => {
       socket.emit("joined");
       waiting_queue = waiting_queue.filter((room) => room !== roomName);
       active_sessions.push(roomName);
-      active_sessions_users[roomName].push(user_token);
+      if(!active_sessions_users[roomName]?.includes(user_token)){
+        active_sessions_users[roomName].push(user_token);
+      }
       updateRoomState();
     } 
     // Room is full
@@ -93,15 +99,18 @@ io.on("connection", (socket) => {
 
   // Handles user leaving the room and adds the room to the waiting queue
   socket.on("onLeave", (roomName) => {
+    if(!roomName){
+      roomName = socket_rooms[user_token];
+    }
     console.log("onLeave", roomName);
     socket.leave(roomName);
     active_sessions = active_sessions.filter((room) => room !== roomName);
     messages[roomName] = [];
-    active_sessions_users[roomName] = active_sessions_users[roomName].filter((user) => user !== user_token);
+    active_sessions_users[roomName] = active_sessions_users[roomName]?.filter((user) => user !== user_token);
 
     // Only add the room back to waiting queue if it's empty
     if (active_sessions_users[roomName]?.length === 0) {
-      waiting_queue.push(roomName);
+      if(!waiting_queue.includes(roomName)) waiting_queue.push(roomName);
     }
 
     updateRoomState();
@@ -124,7 +133,7 @@ io.on("connection", (socket) => {
     socket.broadcast.to(roomName).emit("skipped_users", skipped_sessions[user_token]);
 
     if (active_sessions_users[roomName]) {
-      active_sessions_users[roomName] = active_sessions_users[roomName].filter((user) => user !== user_token);
+      active_sessions_users[roomName] = active_sessions_users[roomName]?.filter((user) => user !== user_token);
     }
 
     updateRoomState();
@@ -146,6 +155,27 @@ io.on("connection", (socket) => {
       .to(data.roomName)
       .emit("message_recieved", messages[data.roomName]);
   });
+
+
+  socket.on('disconnect',() => {
+    const roomName = socket_rooms[user_token];
+    console.log("onLeave", roomName);
+    socket.leave(roomName);
+    active_sessions = active_sessions.filter((room) => room !== roomName);
+    messages[roomName] = [];
+    active_sessions_users[roomName] = active_sessions_users[roomName]?.filter((user) => user !== user_token);
+
+    // Only add the room back to waiting queue if it's empty
+    if (active_sessions_users[roomName]?.length === 0) {
+      if(!waiting_queue.includes(roomName)) waiting_queue.push(roomName);
+    }
+
+    updateRoomState();
+    socket.emit("getWaitingRooms", { waiting_queue, active_sessions_users });
+    socket.broadcast.to(roomName).emit("leave");
+  })
+
+  
 
   // Helper function to update room state
   function updateRoomState() {

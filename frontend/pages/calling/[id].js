@@ -146,7 +146,8 @@ const Calling = () => {
   const onPeerLeave = (waiting_queue) => {
     hostRef.current = false;
     setConnectionStatus("Searching...");
-    window.location.reload();
+    // window.location.reload();
+    socketRef.current.emit("join", {roomId:roomName,userskip:true});
   };
 
   const message_received = (message) => {
