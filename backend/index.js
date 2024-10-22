@@ -51,7 +51,7 @@ io.on("connection", (socket) => {
       socket.join(roomName);
       socket.emit("created");
       messages[roomName] = [];
-      if (!waiting_queue.includes(roomName)) {
+      if (!waiting_queue.includes(roomName) && roomName) {
         console.log("pushing room to waiting queue",roomName);
         waiting_queue.push(roomName);
       }
@@ -99,6 +99,7 @@ io.on("connection", (socket) => {
 
   // Handles user leaving the room and adds the room to the waiting queue
   socket.on("onLeave", (roomName) => {
+    
     if(!roomName){
       roomName = socket_rooms[user_token];
     }
@@ -110,9 +111,10 @@ io.on("connection", (socket) => {
 
     // Only add the room back to waiting queue if it's empty
     if (active_sessions_users[roomName]?.length === 0) {
-      delete waiting_queue[roomName];
+      delete active_sessions_users[roomName];
+      waiting_queue = waiting_queue.filter(r => r != roomName);
     }else{
-      if(!waiting_queue.includes(roomName)) waiting_queue.push(roomName);
+      if(!waiting_queue.includes(roomName) && roomName) waiting_queue.push(roomName);
     }
 
     updateRoomState();
@@ -163,7 +165,8 @@ io.on("connection", (socket) => {
 
   socket.on('disconnect',() => {
     const roomName = socket_rooms[user_token];
-    console.log("onLeave", roomName);
+    console.log("disconnect", roomName);
+    if(!roomName) return;
     socket.leave(roomName);
     active_sessions = active_sessions.filter((room) => room !== roomName);
     messages[roomName] = [];
@@ -171,10 +174,13 @@ io.on("connection", (socket) => {
 
     // Only add the room back to waiting queue if it's empty
     if (active_sessions_users[roomName]?.length === 0) {
-      delete waiting_queue[roomName];
+      delete active_sessions_users[roomName];
+      waiting_queue = waiting_queue.filter(r => r != roomName);
     }else{
-      if(!waiting_queue.includes(roomName)) waiting_queue.push(roomName);
+      if(!waiting_queue.includes(roomName) && roomName) waiting_queue.push(roomName);
     }
+
+    console.log(waiting_queue,"waiting_queue")
 
     updateRoomState();
     socket.emit("getWaitingRooms", { waiting_queue, active_sessions_users });
