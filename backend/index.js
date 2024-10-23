@@ -32,6 +32,7 @@ let messages = {};
 let skipped_sessions = {};
 let active_sessions_users = {};
 let socket_rooms = {}
+let timeOutRef = {};
 
 io.on("connection", (socket) => {
   const user_token = socket.id;
@@ -66,7 +67,7 @@ io.on("connection", (socket) => {
       waiting_queue = waiting_queue.filter((room) => room !== roomName);
       active_sessions.push(roomName);
       if(!active_sessions_users[roomName]?.includes(user_token)){
-        active_sessions_users[roomName].push(user_token);
+        active_sessions_users[roomName]?.push(user_token);
       }
       updateRoomState();
     } 
@@ -165,7 +166,7 @@ io.on("connection", (socket) => {
 
   socket.on('disconnect',() => {
     const roomName = socket_rooms[user_token];
-    console.log("disconnect", roomName);
+    console.log("disconnect",socket.id);
     if(!roomName) return;
     socket.leave(roomName);
     active_sessions = active_sessions.filter((room) => room !== roomName);
@@ -180,11 +181,16 @@ io.on("connection", (socket) => {
       if(!waiting_queue.includes(roomName) && roomName) waiting_queue.push(roomName);
     }
 
-    console.log(waiting_queue,"waiting_queue")
-
     updateRoomState();
     socket.emit("getWaitingRooms", { waiting_queue, active_sessions_users });
-    socket.broadcast.to(roomName).emit("leave");
+    if(timeOutRef[roomName]){
+      clearTimeout(timeOutRef[roomName]);
+    }
+
+    timeOutRef[roomName] = setTimeout(() => {
+      console.log(`current users in this ${roomName} ${active_sessions_users[roomName]?.length}`)
+      socket.broadcast.to(roomName).emit("leave",{ waiting_queue, active_sessions_users,roomName });
+    },5000)
   })
 
   

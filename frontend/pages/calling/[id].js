@@ -143,11 +143,30 @@ const Calling = () => {
     }
   };
 
-  const onPeerLeave = (waiting_queue) => {
-    hostRef.current = false;
-    setConnectionStatus("Searching...");
-    // window.location.reload();
-    socketRef.current.emit("join", {roomId:roomName,userskip:true});
+  const onPeerLeave = ({ waiting_queue, active_sessions_users,roomName:roomName2 }) => {
+      
+    
+    if(active_sessions_users[roomName].length == 0 || roomName != roomName2) return
+   
+    let waitingRoomsTemp = [...waiting_queue].filter((rn) => rn !== roomName);
+    
+      if (waitingRoomsTemp.length !== 0) {
+        if (peerVideoRef.current.srcObject) {
+          peerVideoRef.current.srcObject.getTracks().forEach((track) => track.stop());
+        }
+  
+        let roomToJoin = waitingRoomsTemp[Math.floor(Math.random() * waitingRoomsTemp.length)];
+
+        if(rtcConnectionRef.current){
+          rtcConnectionRef.current.close();
+          rtcConnectionRef.current = null;
+        }
+        router.push(`/calling/${roomToJoin}`)
+      } else {
+        hostRef.current = false;
+        setConnectionStatus("Searching...");
+        socketRef.current.emit("join", {roomId:roomName,userskip:true});
+      }
   };
 
   const message_received = (message) => {
@@ -295,14 +314,14 @@ const Calling = () => {
   };
 
   const handleEndCalling = () => {
-    socketRef.current.emit("skip", roomName);
-    if (connectionStatus === "Searching...") {
-      socketRef.current.emit("onLeave", roomName);
-    }
-    if (rtcConnectionRef.current) {
-      rtcConnectionRef.current.close();
-      rtcConnectionRef.current = null;
-    }
+    // socketRef.current.emit("skip", roomName);
+    // if (connectionStatus === "Searching...") {
+    //   socketRef.current.emit("onLeave", roomName);
+    // }
+    // if (rtcConnectionRef.current) {
+    //   rtcConnectionRef.current.close();
+    //   rtcConnectionRef.current = null;
+    // }
     router.push("/");
   };
 
