@@ -314,14 +314,10 @@ const Calling = () => {
   };
 
   const handleEndCalling = () => {
-    // socketRef.current.emit("skip", roomName);
-    // if (connectionStatus === "Searching...") {
-    //   socketRef.current.emit("onLeave", roomName);
-    // }
-    // if (rtcConnectionRef.current) {
-    //   rtcConnectionRef.current.close();
-    //   rtcConnectionRef.current = null;
-    // }
+    if (rtcConnectionRef.current) {
+      rtcConnectionRef.current.close();
+      rtcConnectionRef.current = null;
+    }
     router.push("/");
   };
 
